@@ -7,8 +7,23 @@ Processes CSV and PDF bank/credit card statements and generates spending reports
 import pandas as pd
 import re
 import os
+import getpass
 from datetime import datetime
 from pathlib import Path
+
+# -------------------------------------------------------------------
+# Security & Validation Functions
+# -------------------------------------------------------------------
+def validate_email(email: str) -> bool:
+    """Validate email format using regex."""
+    pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+    return re.match(pattern, email) is not None
+
+def validate_directory_path(dir_path: str) -> bool:
+    """Validate that directory path exists and is safe (no path traversal)."""
+    if '..' in dir_path:
+        return False
+    return os.path.isdir(dir_path)
 
 # -------------------------------------------------------------------
 # Configuration
@@ -26,9 +41,9 @@ if not dir_path:
     print("No directory specified. Using current directory.")
     dir_path = "."
 
-# Check if directory exists
-if not os.path.isdir(dir_path):
-    print(f"Error: Directory '{dir_path}' not found!")
+# Validate directory path
+if not validate_directory_path(dir_path):
+    print(f"Error: Directory '{dir_path}' not found or invalid!")
     exit(1)
 
 # Get files from specified directory
@@ -683,7 +698,19 @@ def send_via_gmail_api(creds, sender, recipient, msg):
 if send_email:
     print("\nEmail Configuration:")
     sender_email = input("  Sender email: ").strip()
-    recipient_email = input("  Recipient email: ").strip()
+    if not validate_email(sender_email):
+        print(f"  ✗ Invalid sender email format: {sender_email}")
+        send_email = False
+    else:
+        recipient_email = input("  Recipient email: ").strip()
+        if not validate_email(recipient_email):
+            print(f"  ✗ Invalid recipient email format: {recipient_email}")
+            send_email = False
+    
+    if not send_email:
+        print("  Skipping email...")
+
+if send_email:
     # Build email content
     subject = f"Spending Report for {mm}/{yyyy}"
     report2_html_table = report2_df.to_html(index=False, border=1)
@@ -736,10 +763,11 @@ if send_email:
             print(f"  Falling back to SMTP...")
             use_oauth = False
     
-    if not use_oauth:
+    if not use_oauth and send_email:
         # Fallback to SMTP
         print("\n  SMTP Configuration (Gmail or other provider):")
-        sender_password = input("    Password (or app password): ").strip()
+        print("  ⚠️  Password will not be displayed on screen for security")
+        sender_password = getpass.getpass("    Password (or app password): ").strip()
         smtp_host = input("    SMTP host [default: smtp.gmail.com]: ").strip() or "smtp.gmail.com"
         smtp_port = input("    SMTP port [default: 465]: ").strip() or "465"
         try:
